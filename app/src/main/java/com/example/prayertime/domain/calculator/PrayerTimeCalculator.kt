@@ -21,10 +21,10 @@ class PrayerTimeCalculator {
         calculationMethod: CalculationMethod,
         asrMethod: AsrMethod
     ): PrayerSchedule {
-        // Use a UTC calendar for astronomical calculations to avoid local drift
+        // Use a UTC calendar for astronomical calculations
         val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         calendar.time = date
-        // Calculate parameters for 12:00 UTC (Noon) to be most accurate for the day
+        // Calculate parameters for 12:00 UTC (Noon) for daily averages
         calendar.set(Calendar.HOUR_OF_DAY, 12)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
@@ -37,36 +37,47 @@ class PrayerTimeCalculator {
 
         // Solar Noon (Dhuhr): 12 + TZ_Offset - Longitude/15 - EOT/60
         // Longitude is positive for East, negative for West.
+        // Example: London (0.12 W) -> Longitude = -0.12. 
+        // dhuhr = 12 + 1 - (-0.12/15) - EOT/60 = 13 + 0.008 - EOT/60
         val dhuhr = 12.0 + tzOffset - (location.longitude / 15.0) - (eqTime / 60.0)
 
-        // Sunrise/Sunset angle (accounts for atmospheric refraction and sun radius)
-        val horizonAngle = -0.833
+        // Sunrise/Sunset angle (accounts for atmospheric refraction 34' and sun radius 16')
+        // Total -50 arc minutes = -0.8333 degrees
+        val horizonAngle = -0.8333
         
-        val fajr = calculateTimeAtAngle(location, declination, dhuhr, -calculationMethod.fajrAngle, true)
-        val sunrise = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, true)
-        val sunset = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, false)
-        val asr = calculateAsrTime(location, declination, dhuhr, asrMethod.factor)
-        val maghrib = sunset
+        // Calculate base times
+        val fajrRaw = calculateTimeAtAngle(location, declination, dhuhr, -calculationMethod.fajrAngle, true)
+        val sunriseRaw = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, true)
+        val sunsetRaw = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, false)
+        val asrRaw = calculateAsrTime(location, declination, dhuhr, asrMethod.factor)
         
-        val isha = if (calculationMethod == CalculationMethod.MECCA) {
-            maghrib + 1.5 // Umm Al-Qura: 90 minutes after Maghrib (Standard)
+        // Maghrib calculation
+        // Traditionally Sunset. Some add a small safety buffer (e.g. 2-3 minutes).
+        // We add 2 minutes (0.033 hours) to ensure the sun has completely set.
+        val maghribRaw = if (sunsetRaw > 0) sunsetRaw + (2.0 / 60.0) else -1.0
+        
+        // Isha calculation
+        val ishaRaw = if (calculationMethod == CalculationMethod.MECCA) {
+            // Umm Al-Qura: 90 minutes (1.5 hours) after Maghrib
+            if (maghribRaw > 0) maghribRaw + 1.5 else -1.0
         } else {
             calculateTimeAtAngle(location, declination, dhuhr, -calculationMethod.ishaAngle, false)
         }
 
-        // Handle cases where sun doesn't reach specified angles (e.g. polar regions)
-        val validatedFajr = if (fajr < 0) dhuhr - 7.0 else fajr
-        val validatedSunrise = if (sunrise < 0) dhuhr - 6.0 else sunrise
-        val validatedSunset = if (sunset < 0) dhuhr + 6.0 else sunset
-        val validatedAsr = if (asr < 0) dhuhr + 3.0 else asr
-        val validatedIsha = if (isha < 0) dhuhr + 8.0 else isha
+        // Handle cases where sun doesn't reach specified angles (e.g. polar regions in summer)
+        // Fallback to reasonable defaults relative to Dhuhr if calculation fails
+        val validatedFajr = if (fajrRaw < 0) dhuhr - 7.5 else fajrRaw
+        val validatedSunrise = if (sunriseRaw < 0) dhuhr - 6.5 else sunriseRaw
+        val validatedAsr = if (asrRaw < 0) dhuhr + 3.5 else asrRaw
+        val validatedMaghrib = if (maghribRaw < 0) dhuhr + 7.0 else maghribRaw
+        val validatedIsha = if (ishaRaw < 0) dhuhr + 8.5 else ishaRaw
 
         val prayers = listOf(
             Prayer(PrayerName.FAJR, decimalToTime(validatedFajr), decimalToTime(validatedSunrise)),
             Prayer(PrayerName.SUNRISE, decimalToTime(validatedSunrise), decimalToTime(dhuhr)),
             Prayer(PrayerName.DHUHR, decimalToTime(dhuhr), decimalToTime(validatedAsr)),
-            Prayer(PrayerName.ASR, decimalToTime(validatedAsr), decimalToTime(validatedSunset)),
-            Prayer(PrayerName.MAGHRIB, decimalToTime(validatedSunset), decimalToTime(validatedIsha)),
+            Prayer(PrayerName.ASR, decimalToTime(validatedAsr), decimalToTime(validatedMaghrib)),
+            Prayer(PrayerName.MAGHRIB, decimalToTime(validatedMaghrib), decimalToTime(validatedIsha)),
             Prayer(PrayerName.ISHA, decimalToTime(validatedIsha), decimalToTime(validatedFajr + 24))
         )
 
@@ -87,7 +98,8 @@ class PrayerTimeCalculator {
         // Hour Angle formula: cos(H) = (sin(alpha) - sin(phi) * sin(declination)) / (cos(phi) * cos(declination))
         val cosH = (sin(alpha) - sin(phi) * sin(declination)) / (cos(phi) * cos(declination))
         
-        if (cosH > 1.0 || cosH < -1.0) return -1.0 // Sun never reaches this angle on this day
+        if (cosH > 1.0) return -1.0 // Sun always above this angle (polar day)
+        if (cosH < -1.0) return -1.0 // Sun always below this angle (polar night)
         
         val hourAngle = toDegrees(acos(cosH))
         return dhuhr + (if (isBeforeNoon) -hourAngle else hourAngle) / 15.0
@@ -150,6 +162,7 @@ class PrayerTimeCalculator {
 
     private fun getTimeZoneOffset(timeZoneId: String, date: Date): Double {
         val tz = TimeZone.getTimeZone(timeZoneId)
+        // This returns the offset including DST for the specific date
         return tz.getOffset(date.time) / 3600000.0
     }
 

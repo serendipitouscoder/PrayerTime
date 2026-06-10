@@ -31,7 +31,8 @@ The prayer times are calculated using the following astronomical principles:
 - **Sunrise/Sunset**: When the sun's center is at $-0.833^\circ$ (accounting for refraction).
 - **Fajr/Isha**: When the sun reaches a specific angle below the horizon (e.g., $-18^\circ$).
 - **Asr**: Based on the shadow length of an object. The shadow length $S = 1 + \tan(\phi - \delta)$ for Shafi'i and $S = 2 + \tan(\phi - \delta)$ for Hanafi.
-- **Maghrib**: Generally taken as Sunset.
+- **Maghrib**: Calculated as Sunset + 2 minutes safety buffer to ensure the sun has completely disappeared below the horizon.
+- **Isha**: Either a fixed duration after Maghrib (e.g., 90 mins for Umm Al-Qura) or based on sun angle.
 
 ## 4. Features
 - **Location Awareness**: Uses GPS or manual coordinates.
