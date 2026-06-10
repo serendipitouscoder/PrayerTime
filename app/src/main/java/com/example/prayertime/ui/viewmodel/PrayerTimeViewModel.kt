@@ -1,14 +1,17 @@
 package com.example.prayertime.ui.viewmodel
 
+import android.location.Geocoder
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.prayertime.data.model.*
 import com.example.prayertime.domain.alarm.AlarmScheduler
 import com.example.prayertime.domain.calculator.PrayerTimeCalculator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.*
 
 /**
@@ -17,6 +20,7 @@ import java.util.*
 data class PrayerTimeUiState(
     val prayerSchedule: PrayerSchedule? = null,
     val isLoading: Boolean = false,
+    val isGeocoding: Boolean = false,
     val errorMessage: String? = null,
     val location: Location = Location(latitude = 21.4225, longitude = 39.8262),
     val isAlarmsEnabled: Boolean = false,
@@ -34,12 +38,54 @@ class PrayerTimeViewModel : ViewModel() {
     private val calculator = PrayerTimeCalculator()
     private lateinit var alarmScheduler: AlarmScheduler
     private var appSettings = AppSettings()
+    private lateinit var context: android.content.Context
 
     /**
      * Initialize the ViewModel with AlarmManager and Context
      */
     fun initialize(alarmManager: android.app.AlarmManager, context: android.content.Context) {
-        alarmScheduler = AlarmScheduler(context, alarmManager)
+        this.alarmScheduler = AlarmScheduler(context, alarmManager)
+        this.context = context
+    }
+
+    /**
+     * Lookup coordinates for a given city name
+     */
+    fun lookupCoordinates(cityName: String, onResult: (Double, Double, String) -> Unit) {
+        if (cityName.isBlank()) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isGeocoding = true, errorMessage = null)
+            try {
+                withContext(Dispatchers.IO) {
+                    val geocoder = Geocoder(context, Locale.getDefault())
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocationName(cityName, 1)
+                    
+                    if (!addresses.isNullOrEmpty()) {
+                        val address = addresses[0]
+                        withContext(Dispatchers.Main) {
+                            onResult(address.latitude, address.longitude, address.adminArea ?: cityName)
+                            _uiState.value = _uiState.value.copy(isGeocoding = false)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            _uiState.value = _uiState.value.copy(
+                                isGeocoding = false,
+                                errorMessage = "Could not find coordinates for '$cityName'"
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(
+                        isGeocoding = false,
+                        errorMessage = "Location lookup failed: ${e.message}"
+                    )
+                }
+            }
+        }
     }
 
     /**

@@ -96,7 +96,8 @@ class PrayerTimeCalculator {
             Prayer(PrayerName.FAJR, decimalToTime(validatedFajr), decimalToTime(validatedSunrise)),
             Prayer(PrayerName.SUNRISE, decimalToTime(validatedSunrise), decimalToTime(dhuhr)),
             Prayer(PrayerName.DHUHR, decimalToTime(dhuhr), decimalToTime(validatedAsr)),
-            Prayer(PrayerName.ASR, decimalToTime(validatedAsr), decimalToTime(validatedMaghrib)),
+            Prayer(PrayerName.ASR, decimalToTime(validatedAsr), decimalToTime(validatedSunset)),
+            Prayer(PrayerName.SUNSET, decimalToTime(validatedSunset), decimalToTime(validatedMaghrib)),
             Prayer(PrayerName.MAGHRIB, decimalToTime(validatedMaghrib), decimalToTime(validatedIsha)),
             Prayer(PrayerName.ISHA, decimalToTime(validatedIsha), decimalToTime(validatedFajr + 24))
         )

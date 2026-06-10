@@ -24,6 +24,7 @@ enum class PrayerName(val displayName: String, val arabicName: String) {
     SUNRISE("Sunrise", "الشروق"),
     DHUHR("Dhuhr", "الظهر"),
     ASR("Asr", "العصر"),
+    SUNSET("Sunset", "الغروب"),
     MAGHRIB("Maghrib", "المغرب"),
     ISHA("Isha", "العشاء");
 

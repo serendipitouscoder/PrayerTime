@@ -177,7 +177,8 @@ class MainActivity : ComponentActivity() {
                             timeZone = timezone
                         )
                     },
-                    majorTimeZones = viewModel.getMajorTimeZones()
+                    majorTimeZones = viewModel.getMajorTimeZones(),
+                    isGeocoding = uiState.isGeocoding
                 )
 
                 // Prayer times section
@@ -233,7 +234,8 @@ class MainActivity : ComponentActivity() {
         onTimezoneChange: (String) -> Unit,
         onCityNameChange: (String) -> Unit,
         onCalculateClick: () -> Unit,
-        majorTimeZones: List<String>
+        majorTimeZones: List<String>,
+        isGeocoding: Boolean
     ) {
         var expanded by remember { mutableStateOf(false) }
 
@@ -255,13 +257,29 @@ class MainActivity : ComponentActivity() {
                 OutlinedTextField(
                     value = cityName,
                     onValueChange = onCityNameChange,
-                    label = { Text("City Name") },
+                    label = { Text("City Name (Search to fill GPS)") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     trailingIcon = {
-                        if (cityName.isNotEmpty()) {
-                            IconButton(onClick = { onCityNameChange("") }) {
-                                Icon(Icons.Default.Clear, contentDescription = "Clear City Name")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isGeocoding) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            if (cityName.isNotEmpty()) {
+                                IconButton(onClick = { onCityNameChange("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear City Name")
+                                }
+                                IconButton(
+                                    onClick = {
+                                        viewModel.lookupCoordinates(cityName) { lat, lon, _ ->
+                                            onLatitudeChange(String.format(Locale.US, "%.6f", lat))
+                                            onLongitudeChange(String.format(Locale.US, "%.6f", lon))
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Search, contentDescription = "Lookup Coordinates")
+                                }
                             }
                         }
                     }

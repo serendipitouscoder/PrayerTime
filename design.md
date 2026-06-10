@@ -7,7 +7,7 @@ PrayerTime is an Android application designed to calculate accurate Muslim praye
 The application follows a clean architecture pattern with the following components:
 
 ### 2.1. Domain Layer
-- **PrayerTimeCalculator**: The core logic component. It calculates the five daily prayers (Fajr, Dhuhr, Asr, Maghrib, Isha) plus Sunrise.
+- **PrayerTimeCalculator**: The core logic component. It calculates the five daily prayers (Fajr, Dhuhr, Asr, Maghrib, Isha) plus Sunrise and Sunset.
 - **Models**: `Location`, `PrayerSchedule`, `Prayer`, `CalculationMethod`, `AsrMethod`.
 
 ### 2.2. Data Layer
@@ -39,6 +39,7 @@ The prayer times are calculated using the following astronomical principles:
 - **Dynamic Banner**: The top bar updates to show the currently selected city.
 - **Configuration Hub**: A dedicated settings menu (accessible via the gear icon) for managing app preferences.
 - **Theme Customization**: Supports Light, Dark, and System theme modes.
+- **Automatic GPS Lookup**: Enter a city name and tap the search icon to automatically find and populate GPS coordinates using the Geocoder service.
 - **High Latitude Support**: Automatically detects when the sun doesn't reach required astronomical angles (common in UK/Europe during summer) and applies the "One-Seventh of the Night" rule to ensure Fajr is before sunrise and Isha is after sunset.
 - **Quick Clearing**: All input fields (City, Coordinates, Timezone) include a one-tap clear button for faster data entry.
 - **Alarms/Notifications**: Schedules system alarms for each prayer time.
