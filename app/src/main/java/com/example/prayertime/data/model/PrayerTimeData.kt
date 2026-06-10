@@ -80,6 +80,13 @@ data class PrayerSchedule(
 )
 
 /**
+ * Theme modes for the application
+ */
+enum class AppThemeMode {
+    LIGHT, DARK, SYSTEM
+}
+
+/**
  * Settings for the app
  */
 data class AppSettings(
@@ -90,5 +97,6 @@ data class AppSettings(
     val calculationMethod: CalculationMethod = CalculationMethod.MECCA,
     val asrMethod: AsrMethod = AsrMethod.STANDARD,
     val isAlarmsEnabled: Boolean = true,
-    val notificationMinutesBefore: Int = 15
+    val notificationMinutesBefore: Int = 15,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM
 )

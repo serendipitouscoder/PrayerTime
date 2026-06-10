@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.prayertime.data.model.*
 import com.example.prayertime.ui.theme.PrayerTimeTheme
+import com.example.prayertime.ui.viewmodel.PrayerTimeUiState
 import com.example.prayertime.ui.viewmodel.PrayerTimeViewModel
 import java.util.Calendar
 import java.util.Locale
@@ -54,7 +56,14 @@ class MainActivity : ComponentActivity() {
         viewModel.initialize(alarmManager, this)
 
         setContent {
-            PrayerTimeTheme {
+            val uiState by viewModel.uiState.collectAsState()
+            val darkTheme = when (uiState.themeMode) {
+                AppThemeMode.LIGHT -> false
+                AppThemeMode.DARK -> true
+                AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+
+            PrayerTimeTheme(darkTheme = darkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -72,33 +81,69 @@ class MainActivity : ComponentActivity() {
         var longitude by remember { mutableStateOf("") }
         var timezone by remember { mutableStateOf("Asia/Riyadh") }
         var cityName by remember { mutableStateOf("") }
+        var showSettings by remember { mutableStateOf(false) }
 
         val uiState by viewModel.uiState.collectAsState()
+
+        // Sync local state with loaded data when it changes
+        LaunchedEffect(uiState.prayerSchedule) {
+            uiState.prayerSchedule?.let { schedule ->
+                latitude = schedule.location.latitude.toString()
+                longitude = schedule.location.longitude.toString()
+                timezone = schedule.location.timeZone
+                cityName = schedule.location.cityName
+            }
+        }
 
         LaunchedEffect(Unit) {
             viewModel.loadPrayerTimes()
         }
 
+        if (showSettings) {
+            SettingsDialog(
+                viewModel = viewModel,
+                uiState = uiState
+            ) { showSettings = false }
+        }
+
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Prayer Times - Local Sun Position") },
+                    title = { 
+                        Column {
+                            Text(
+                                text = if (cityName.isNotEmpty()) "Prayer Times: $cityName" else "Prayer Times",
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            if (cityName.isNotEmpty()) {
+                                Text(
+                                    text = "Local Sun Position",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    },
                     actions = {
                         IconButton(onClick = { viewModel.loadPrayerTimes() }) {
                             Icon(Icons.Default.Refresh, "Refresh")
                         }
-                        IconButton(onClick = {
-                            viewModel.toggleAlarms(!uiState.isAlarmsEnabled)
-                            if (!uiState.isAlarmsEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                if (ContextCompat.checkSelfPermission(
-                                        this@MainActivity,
-                                        Manifest.permission.POST_NOTIFICATIONS
-                                    ) != PackageManager.PERMISSION_GRANTED
-                                ) {
-                                    requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, "Settings")
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.toggleAlarms(!uiState.isAlarmsEnabled)
+                                if (!uiState.isAlarmsEnabled && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)) {
+                                    if (ContextCompat.checkSelfPermission(
+                                            this@MainActivity,
+                                            Manifest.permission.POST_NOTIFICATIONS
+                                        ) != PackageManager.PERMISSION_GRANTED
+                                    ) {
+                                        requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    }
                                 }
                             }
-                        }) {
+                        ) {
                             Icon(
                                 imageVector = if (uiState.isAlarmsEnabled) Icons.Default.Notifications else Icons.Default.NotificationsOff,
                                 contentDescription = "Toggle Alarms",
@@ -131,7 +176,8 @@ class MainActivity : ComponentActivity() {
                             cityName = cityName.ifBlank { "Unknown" },
                             timeZone = timezone
                         )
-                    }
+                    },
+                    majorTimeZones = viewModel.getMajorTimeZones()
                 )
 
                 // Prayer times section
@@ -175,6 +221,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun LocationInputSection(
         latitude: String,
@@ -185,8 +232,11 @@ class MainActivity : ComponentActivity() {
         onLongitudeChange: (String) -> Unit,
         onTimezoneChange: (String) -> Unit,
         onCityNameChange: (String) -> Unit,
-        onCalculateClick: () -> Unit
+        onCalculateClick: () -> Unit,
+        majorTimeZones: List<String>
     ) {
+        var expanded by remember { mutableStateOf(false) }
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -195,15 +245,9 @@ class MainActivity : ComponentActivity() {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Enter Location Details",
+                    text = "Location Settings",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-                Text(
-                    text = "Prayer times calculated based on local sun position at entered coordinates",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
@@ -213,7 +257,14 @@ class MainActivity : ComponentActivity() {
                     onValueChange = onCityNameChange,
                     label = { Text("City Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
+                    singleLine = true,
+                    trailingIcon = {
+                        if (cityName.isNotEmpty()) {
+                            IconButton(onClick = { onCityNameChange("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear City Name")
+                            }
+                        }
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -229,7 +280,13 @@ class MainActivity : ComponentActivity() {
                         label = { Text("Latitude") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("e.g., 21.4225 (Makkah)") }
+                        trailingIcon = {
+                            if (latitude.isNotEmpty()) {
+                                IconButton(onClick = { onLatitudeChange("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear Latitude")
+                                }
+                            }
+                        }
                     )
 
                     OutlinedTextField(
@@ -238,34 +295,68 @@ class MainActivity : ComponentActivity() {
                         label = { Text("Longitude") },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        placeholder = { Text("e.g., 39.8262") }
+                        trailingIcon = {
+                            if (longitude.isNotEmpty()) {
+                                IconButton(onClick = { onLongitudeChange("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear Longitude")
+                                }
+                            }
+                        }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Timezone
-                OutlinedTextField(
-                    value = timezone,
-                    onValueChange = onTimezoneChange,
-                    label = { Text("Timezone (e.g., Asia/Riyadh, Europe/London, America/New_York)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(Icons.Default.AccessTime, contentDescription = "Timezone")
+                // Timezone with Dropdown and manual entry
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = timezone,
+                        onValueChange = onTimezoneChange,
+                        label = { Text("Timezone (Select or Type)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        trailingIcon = {
+                            Row {
+                                if (timezone.isNotEmpty()) {
+                                    IconButton(onClick = { onTimezoneChange("") }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "Clear Timezone")
+                                    }
+                                }
+                                IconButton(onClick = { expanded = !expanded }) {
+                                    Icon(
+                                        imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                        contentDescription = "Show major timezones"
+                                    )
+                                }
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                        modifier = Modifier.fillMaxWidth(0.9f)
+                    ) {
+                        majorTimeZones.forEach { tz ->
+                            DropdownMenuItem(
+                                text = { Text(tz) },
+                                onClick = {
+                                    onTimezoneChange(tz)
+                                    expanded = false
+                                }
+                            )
+                        }
                     }
-                )
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Calculate button
                 Button(
                     onClick = onCalculateClick,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Calculate, contentDescription = "Calculate", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Update, contentDescription = "Update")
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Calculate Prayer Times")
+                    Text("Update Prayer Times")
                 }
             }
         }
@@ -492,6 +583,107 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Settings dialog for theme and other preferences
+     */
+    @Composable
+    fun SettingsDialog(
+        viewModel: PrayerTimeViewModel,
+        uiState: PrayerTimeUiState,
+        onDismiss: () -> Unit
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Configuration & Settings") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "App Theme",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // Theme selection row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        ThemeOption(
+                            icon = Icons.Default.LightMode,
+                            label = "Light",
+                            isSelected = uiState.themeMode == AppThemeMode.LIGHT,
+                            onClick = { viewModel.updateTheme(AppThemeMode.LIGHT) }
+                        )
+                        ThemeOption(
+                            icon = Icons.Default.DarkMode,
+                            label = "Dark",
+                            isSelected = uiState.themeMode == AppThemeMode.DARK,
+                            onClick = { viewModel.updateTheme(AppThemeMode.DARK) }
+                        )
+                        ThemeOption(
+                            icon = Icons.Default.SettingsBrightness,
+                            label = "System",
+                            isSelected = uiState.themeMode == AppThemeMode.SYSTEM,
+                            onClick = { viewModel.updateTheme(AppThemeMode.SYSTEM) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Calculation Settings",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    
+                    // Add more settings as needed
+                    Text(
+                        text = "Notifications: ${if (uiState.isAlarmsEnabled) "Enabled" else "Disabled"}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    @Composable
+    fun ThemeOption(
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        label: String,
+        isSelected: Boolean,
+        onClick: () -> Unit
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(8.dp)
+                .background(
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    shape = MaterialTheme.shapes.small
+                )
+                .padding(8.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
         }
     }
 

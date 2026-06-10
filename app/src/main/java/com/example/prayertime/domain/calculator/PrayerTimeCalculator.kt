@@ -65,12 +65,32 @@ class PrayerTimeCalculator {
         }
 
         // Handle cases where sun doesn't reach specified angles (e.g. polar regions in summer)
-        // Fallback to reasonable defaults relative to Dhuhr if calculation fails
-        val validatedFajr = if (fajrRaw < 0) dhuhr - 7.5 else fajrRaw
-        val validatedSunrise = if (sunriseRaw < 0) dhuhr - 6.5 else sunriseRaw
+        // Use the "One-Seventh of Night" rule for high latitudes (like UK in summer)
+        // where astronomical dawn/dusk (-18 degrees) may not occur.
+        
+        val validatedSunrise = if (sunriseRaw < 0) dhuhr - 6.0 else sunriseRaw
+        val validatedSunset = if (sunsetRaw < 0) dhuhr + 6.0 else sunsetRaw
+        
+        // Night duration: from sunset to sunrise
+        val nightDuration = (24.0 - validatedSunset) + validatedSunrise
+        
+        val validatedFajr = if (fajrRaw < 0 || fajrRaw >= validatedSunrise) {
+            // Fallback: 1/7th of the night before sunrise
+            validatedSunrise - (nightDuration / 7.0)
+        } else fajrRaw
+
         val validatedAsr = if (asrRaw < 0) dhuhr + 3.5 else asrRaw
-        val validatedMaghrib = if (maghribRaw < 0) dhuhr + 7.0 else maghribRaw
-        val validatedIsha = if (ishaRaw < 0) dhuhr + 8.5 else ishaRaw
+        
+        val validatedMaghrib = if (maghribRaw < 0) validatedSunset + (2.0 / 60.0) else maghribRaw
+        
+        val validatedIsha = if (ishaRaw < 0 || ishaRaw <= validatedMaghrib) {
+            if (calculationMethod == CalculationMethod.MECCA) {
+                validatedMaghrib + 1.5 // 90 mins after Maghrib
+            } else {
+                // Fallback: 1/7th of the night after sunset
+                validatedSunset + (nightDuration / 7.0)
+            }
+        } else ishaRaw
 
         val prayers = listOf(
             Prayer(PrayerName.FAJR, decimalToTime(validatedFajr), decimalToTime(validatedSunrise)),

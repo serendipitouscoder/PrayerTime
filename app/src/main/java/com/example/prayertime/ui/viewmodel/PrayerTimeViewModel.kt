@@ -19,7 +19,8 @@ data class PrayerTimeUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val location: Location = Location(latitude = 21.4225, longitude = 39.8262),
-    val isAlarmsEnabled: Boolean = false
+    val isAlarmsEnabled: Boolean = false,
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM
 )
 
 /**
@@ -67,7 +68,8 @@ class PrayerTimeViewModel : ViewModel() {
                     prayerSchedule = schedule,
                     isLoading = false,
                     location = location,
-                    isAlarmsEnabled = appSettings.isAlarmsEnabled
+                    isAlarmsEnabled = appSettings.isAlarmsEnabled,
+                    themeMode = appSettings.themeMode
                 )
                 
                 _uiState.value = updatedState
@@ -138,6 +140,41 @@ class PrayerTimeViewModel : ViewModel() {
      */
     fun updateNotificationMinutes(minutes: Int) {
         appSettings = appSettings.copy(notificationMinutesBefore = minutes)
+    }
+
+    /**
+     * Updates the application theme
+     */
+    fun updateTheme(themeMode: AppThemeMode) {
+        appSettings = appSettings.copy(themeMode = themeMode)
+        _uiState.value = _uiState.value.copy(themeMode = themeMode)
+    }
+
+    /**
+     * Returns a list of major timezones for the dropdown
+     */
+    fun getMajorTimeZones(): List<String> {
+        return listOf(
+            "UTC",
+            "Europe/London",
+            "Europe/Paris",
+            "Europe/Istanbul",
+            "Asia/Riyadh",
+            "Asia/Dubai",
+            "Asia/Karachi",
+            "Asia/Dhaka",
+            "Asia/Jakarta",
+            "Asia/Kuala_Lumpur",
+            "Asia/Singapore",
+            "Asia/Tokyo",
+            "America/New_York",
+            "America/Chicago",
+            "America/Los_Angeles",
+            "Australia/Sydney",
+            "Africa/Cairo",
+            "Africa/Casablanca",
+            "Africa/Johannesburg"
+        ).sorted()
     }
 
     /**

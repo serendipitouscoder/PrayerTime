@@ -36,8 +36,11 @@ The prayer times are calculated using the following astronomical principles:
 
 ## 4. Features
 - **Location Awareness**: Uses GPS or manual coordinates.
-- **Timezone & DST**: Automatically handles local time offsets and Daylight Saving Time.
-- **Calculation Methods**: Supports various regional standards (MWL, ISNA, Umm Al-Qura, etc.).
+- **Dynamic Banner**: The top bar updates to show the currently selected city.
+- **Configuration Hub**: A dedicated settings menu (accessible via the gear icon) for managing app preferences.
+- **Theme Customization**: Supports Light, Dark, and System theme modes.
+- **High Latitude Support**: Automatically detects when the sun doesn't reach required astronomical angles (common in UK/Europe during summer) and applies the "One-Seventh of the Night" rule to ensure Fajr is before sunrise and Isha is after sunset.
+- **Quick Clearing**: All input fields (City, Coordinates, Timezone) include a one-tap clear button for faster data entry.
 - **Alarms/Notifications**: Schedules system alarms for each prayer time.
 
 ## 5. Technology Stack
