@@ -96,34 +96,37 @@ class PrayerTimeViewModel : ViewModel() {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             
             try {
-                val location = Location(
-                    latitude = appSettings.latitude,
-                    longitude = appSettings.longitude,
-                    timeZone = appSettings.timeZone,
-                    cityName = appSettings.cityName
-                )
-                
-                val schedule = calculator.calculatePrayerTimes(
-                    location = location,
-                    date = Date(),
-                    calculationMethod = appSettings.calculationMethod,
-                    asrMethod = appSettings.asrMethod
-                )
-                
-                val updatedState = _uiState.value.copy(
-                    prayerSchedule = schedule,
-                    isLoading = false,
-                    location = location,
-                    isAlarmsEnabled = appSettings.isAlarmsEnabled,
-                    themeMode = appSettings.themeMode
-                )
+                // Move heavy calculation and alarm scheduling to a background thread
+                val updatedState = withContext(Dispatchers.Default) {
+                    val location = Location(
+                        latitude = appSettings.latitude,
+                        longitude = appSettings.longitude,
+                        timeZone = appSettings.timeZone,
+                        cityName = appSettings.cityName
+                    )
+                    
+                    val schedule = calculator.calculatePrayerTimes(
+                        location = location,
+                        date = Date(),
+                        calculationMethod = appSettings.calculationMethod,
+                        asrMethod = appSettings.asrMethod
+                    )
+                    
+                    // Schedule alarms if enabled
+                    if (appSettings.isAlarmsEnabled && ::alarmScheduler.isInitialized) {
+                        alarmScheduler.scheduleAlarms(schedule, appSettings.notificationMinutesBefore)
+                    }
+
+                    _uiState.value.copy(
+                        prayerSchedule = schedule,
+                        isLoading = false,
+                        location = location,
+                        isAlarmsEnabled = appSettings.isAlarmsEnabled,
+                        themeMode = appSettings.themeMode
+                    )
+                }
                 
                 _uiState.value = updatedState
-                
-                // Schedule alarms if enabled
-                if (appSettings.isAlarmsEnabled && ::alarmScheduler.isInitialized) {
-                    alarmScheduler.scheduleAlarms(schedule, appSettings.notificationMinutesBefore)
-                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -166,17 +169,21 @@ class PrayerTimeViewModel : ViewModel() {
      * Toggles alarms on/off
      */
     fun toggleAlarms(enabled: Boolean) {
-        appSettings = appSettings.copy(isAlarmsEnabled = enabled)
-        _uiState.value = _uiState.value.copy(isAlarmsEnabled = enabled)
-        
-        if (enabled && ::alarmScheduler.isInitialized) {
-            val schedule = _uiState.value.prayerSchedule
-            if (schedule != null) {
-                alarmScheduler.scheduleAlarms(schedule, appSettings.notificationMinutesBefore)
-            }
-        } else {
-            if (::alarmScheduler.isInitialized) {
-                alarmScheduler.cancelAllAlarms()
+        viewModelScope.launch {
+            appSettings = appSettings.copy(isAlarmsEnabled = enabled)
+            _uiState.value = _uiState.value.copy(isAlarmsEnabled = enabled)
+            
+            withContext(Dispatchers.Default) {
+                if (enabled && ::alarmScheduler.isInitialized) {
+                    val schedule = _uiState.value.prayerSchedule
+                    if (schedule != null) {
+                        alarmScheduler.scheduleAlarms(schedule, appSettings.notificationMinutesBefore)
+                    }
+                } else {
+                    if (::alarmScheduler.isInitialized) {
+                        alarmScheduler.cancelAllAlarms()
+                    }
+                }
             }
         }
     }

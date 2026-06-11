@@ -98,6 +98,7 @@ $$Isha = Sunset + \frac{NightDuration}{7}$$
 - **Automatic GPS Lookup**: Integrates Geocoder service to find coordinates from city names.
 - **High Latitude Support**: Robust handling of summer nights via astronomical adjustments.
 - **Quick Clearing**: One-tap clear buttons for all user input fields.
+- **ANR Prevention**: All heavy astronomical calculations, alarm scheduling, and location lookups are performed on background threads (`Dispatchers.Default` and `Dispatchers.IO`) to ensure a smooth, responsive UI.
 
 ## 5. Technology Stack
 - **Language**: Kotlin

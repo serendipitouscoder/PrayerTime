@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
 
         // Initialize ViewModel
         val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
-        viewModel.initialize(alarmManager, this)
+        viewModel.initialize(alarmManager, applicationContext)
 
         setContent {
             val uiState by viewModel.uiState.collectAsState()
