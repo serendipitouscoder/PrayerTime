@@ -99,5 +99,6 @@ data class AppSettings(
     val asrMethod: AsrMethod = AsrMethod.STANDARD,
     val isAlarmsEnabled: Boolean = true,
     val notificationMinutesBefore: Int = 15,
-    val themeMode: AppThemeMode = AppThemeMode.SYSTEM
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val savedLocations: List<Location> = emptyList()
 )

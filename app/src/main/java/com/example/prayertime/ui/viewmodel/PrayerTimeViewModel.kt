@@ -24,7 +24,8 @@ data class PrayerTimeUiState(
     val errorMessage: String? = null,
     val location: Location = Location(latitude = 21.4225, longitude = 39.8262),
     val isAlarmsEnabled: Boolean = false,
-    val themeMode: AppThemeMode = AppThemeMode.SYSTEM
+    val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    val savedLocations: List<Location> = emptyList()
 )
 
 /**
@@ -46,6 +47,63 @@ class PrayerTimeViewModel : ViewModel() {
     fun initialize(alarmManager: android.app.AlarmManager, context: android.content.Context) {
         this.alarmScheduler = AlarmScheduler(context, alarmManager)
         this.context = context
+        loadSettings()
+    }
+
+    /**
+     * Saves current settings to SharedPreferences
+     */
+    private fun saveSettings() {
+        val prefs = context.getSharedPreferences("prayer_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putFloat("lat", appSettings.latitude.toFloat())
+            putFloat("lon", appSettings.longitude.toFloat())
+            putString("city", appSettings.cityName)
+            putString("tz", appSettings.timeZone)
+            putString("theme", appSettings.themeMode.name)
+            putBoolean("alarms", appSettings.isAlarmsEnabled)
+            
+            // Simple string encoding for saved locations: "city|lat|lon|tz;city|lat|lon|tz"
+            val locationsString = appSettings.savedLocations.joinToString(";") { 
+                "${it.cityName}|${it.latitude}|${it.longitude}|${it.timeZone}"
+            }
+            putString("saved_locations", locationsString)
+            apply()
+        }
+    }
+
+    /**
+     * Loads settings from SharedPreferences
+     */
+    private fun loadSettings() {
+        val prefs = context.getSharedPreferences("prayer_prefs", android.content.Context.MODE_PRIVATE)
+        val savedLocsStr = prefs.getString("saved_locations", "") ?: ""
+        val savedLocs = if (savedLocsStr.isEmpty()) emptyList() else {
+            savedLocsStr.split(";").mapNotNull {
+                val parts = it.split("|")
+                if (parts.size == 4) {
+                    Location(parts[1].toDouble(), parts[2].toDouble(), parts[3], parts[0])
+                } else null
+            }
+        }
+
+        appSettings = AppSettings(
+            latitude = prefs.getFloat("lat", 21.4225f).toDouble(),
+            longitude = prefs.getFloat("lon", 39.8262f).toDouble(),
+            cityName = prefs.getString("city", "Makkah") ?: "Makkah",
+            timeZone = prefs.getString("tz", "Asia/Riyadh") ?: "Asia/Riyadh",
+            themeMode = AppThemeMode.valueOf(prefs.getString("theme", "SYSTEM") ?: "SYSTEM"),
+            isAlarmsEnabled = prefs.getBoolean("alarms", true),
+            savedLocations = savedLocs
+        )
+        
+        _uiState.value = _uiState.value.copy(
+            location = Location(appSettings.latitude, appSettings.longitude, appSettings.timeZone, appSettings.cityName),
+            isAlarmsEnabled = appSettings.isAlarmsEnabled,
+            themeMode = appSettings.themeMode,
+            savedLocations = appSettings.savedLocations
+        )
+        loadPrayerTimes()
     }
 
     /**
@@ -146,7 +204,39 @@ class PrayerTimeViewModel : ViewModel() {
             cityName = cityName,
             timeZone = timeZone
         )
+        saveSettings()
         loadPrayerTimes()
+    }
+
+    /**
+     * Saves the current location to the saved locations list
+     */
+    fun saveCurrentLocation() {
+        val currentLocation = Location(
+            appSettings.latitude,
+            appSettings.longitude,
+            appSettings.timeZone,
+            appSettings.cityName
+        )
+        
+        if (!appSettings.savedLocations.any { it.cityName == currentLocation.cityName }) {
+            appSettings = appSettings.copy(
+                savedLocations = appSettings.savedLocations + currentLocation
+            )
+            _uiState.value = _uiState.value.copy(savedLocations = appSettings.savedLocations)
+            saveSettings()
+        }
+    }
+
+    /**
+     * Deletes a location from saved locations
+     */
+    fun deleteSavedLocation(location: Location) {
+        appSettings = appSettings.copy(
+            savedLocations = appSettings.savedLocations.filter { it.cityName != location.cityName }
+        )
+        _uiState.value = _uiState.value.copy(savedLocations = appSettings.savedLocations)
+        saveSettings()
     }
 
     /**
@@ -154,6 +244,7 @@ class PrayerTimeViewModel : ViewModel() {
      */
     fun updateCalculationMethod(method: CalculationMethod) {
         appSettings = appSettings.copy(calculationMethod = method)
+        saveSettings()
         loadPrayerTimes()
     }
 
@@ -162,6 +253,7 @@ class PrayerTimeViewModel : ViewModel() {
      */
     fun updateAsrMethod(asrMethod: AsrMethod) {
         appSettings = appSettings.copy(asrMethod = asrMethod)
+        saveSettings()
         loadPrayerTimes()
     }
 
@@ -172,6 +264,7 @@ class PrayerTimeViewModel : ViewModel() {
         viewModelScope.launch {
             appSettings = appSettings.copy(isAlarmsEnabled = enabled)
             _uiState.value = _uiState.value.copy(isAlarmsEnabled = enabled)
+            saveSettings()
             
             withContext(Dispatchers.Default) {
                 if (enabled && ::alarmScheduler.isInitialized) {
@@ -193,6 +286,7 @@ class PrayerTimeViewModel : ViewModel() {
      */
     fun updateNotificationMinutes(minutes: Int) {
         appSettings = appSettings.copy(notificationMinutesBefore = minutes)
+        saveSettings()
     }
 
     /**
@@ -201,6 +295,7 @@ class PrayerTimeViewModel : ViewModel() {
     fun updateTheme(themeMode: AppThemeMode) {
         appSettings = appSettings.copy(themeMode = themeMode)
         _uiState.value = _uiState.value.copy(themeMode = themeMode)
+        saveSettings()
     }
 
     /**

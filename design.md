@@ -92,12 +92,13 @@ $$Isha = Sunset + \frac{NightDuration}{7}$$
 
 ## 4. Features
 - **Location Awareness**: Uses GPS or manual coordinates.
-- **Dynamic Banner**: The top bar updates to show the currently selected city.
-- **Configuration Hub**: A dedicated settings menu for managing app preferences.
+- **Dynamic Banner**: The top bar updates to show the currently selected city and the current date, removing redundant information from the main list.
+- **Clean List Interface**: Maximizes screen real estate for prayer times by removing redundant location and timezone cards from the main scrollable area.
 - **Theme Customization**: Supports Light, Dark, and System theme modes.
 - **Automatic GPS Lookup**: Integrates Geocoder service to find coordinates from city names.
 - **High Latitude Support**: Robust handling of summer nights via astronomical adjustments.
 - **Quick Clearing**: One-tap clear buttons for all user input fields.
+- **Saved Locations (Favorites)**: Users can save multiple locations (City, Coordinates, Timezone) and quickly retrieve them using a horizontal favorites list on the main screen.
 - **ANR Prevention**: All heavy astronomical calculations, alarm scheduling, and location lookups are performed on background threads (`Dispatchers.Default` and `Dispatchers.IO`) to ensure a smooth, responsive UI.
 
 ## 5. Technology Stack

@@ -109,17 +109,25 @@ class MainActivity : ComponentActivity() {
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { 
+                    title = {
                         Column {
                             Text(
                                 text = if (cityName.isNotEmpty()) "Prayer Times: $cityName" else "Prayer Times",
                                 style = MaterialTheme.typography.titleLarge
                             )
-                            if (cityName.isNotEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "Local Sun Position",
                                     style = MaterialTheme.typography.bodySmall
                                 )
+                                uiState.prayerSchedule?.let { schedule ->
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "• ${schedule.date}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     },
@@ -178,7 +186,10 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     majorTimeZones = viewModel.getMajorTimeZones(),
-                    isGeocoding = uiState.isGeocoding
+                    isGeocoding = uiState.isGeocoding,
+                    savedLocations = uiState.savedLocations,
+                    onSaveLocation = { viewModel.saveCurrentLocation() },
+                    onDeleteLocation = { viewModel.deleteSavedLocation(it) }
                 )
 
                 // Prayer times section
@@ -235,7 +246,10 @@ class MainActivity : ComponentActivity() {
         onCityNameChange: (String) -> Unit,
         onCalculateClick: () -> Unit,
         majorTimeZones: List<String>,
-        isGeocoding: Boolean
+        isGeocoding: Boolean,
+        savedLocations: List<Location>,
+        onSaveLocation: () -> Unit,
+        onDeleteLocation: (Location) -> Unit
     ) {
         var expanded by remember { mutableStateOf(false) }
 
@@ -246,12 +260,55 @@ class MainActivity : ComponentActivity() {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "Location Settings",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Location Settings",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    
+                    if (cityName.isNotEmpty() && latitude.isNotEmpty() && longitude.isNotEmpty()) {
+                        IconButton(onClick = onSaveLocation) {
+                            Icon(Icons.Default.Favorite, contentDescription = "Save Favorite", tint = Color.Red)
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Saved Locations horizontal list
+                if (savedLocations.isNotEmpty()) {
+                    Text(text = "Saved Locations:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    androidx.compose.foundation.lazy.LazyRow(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(savedLocations) { loc ->
+                            InputChip(
+                                selected = false,
+                                onClick = {
+                                    onCityNameChange(loc.cityName)
+                                    onLatitudeChange(String.format(Locale.US, "%.6f", loc.latitude))
+                                    onLongitudeChange(String.format(Locale.US, "%.6f", loc.longitude))
+                                    onTimezoneChange(loc.timeZone)
+                                },
+                                label = { Text(loc.cityName, fontSize = 10.sp) },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Delete",
+                                        modifier = Modifier.size(14.dp).clickable { onDeleteLocation(loc) }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
                 // City Name
                 OutlinedTextField(
@@ -388,83 +445,9 @@ class MainActivity : ComponentActivity() {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Location and date info - showing local position and timezone
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = schedule.location.cityName,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Local coordinates
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.LocationOn,
-                                contentDescription = "Location",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = String.format(Locale.US, "Lat: %.4f°, Lon: %.4f°", schedule.location.latitude, schedule.location.longitude),
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                        
-                        // Timezone
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.AccessTime,
-                                contentDescription = "Timezone",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Timezone: ${schedule.location.timeZone}",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                        
-                        // Date
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.CalendarToday,
-                                contentDescription = "Date",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = schedule.date,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-                    }
-                }
-            }
-
             // Prayer times with durations
             items(schedule.prayers, key = { it.name.name }) { prayer ->
                 PrayerTimeCardWithDuration(
