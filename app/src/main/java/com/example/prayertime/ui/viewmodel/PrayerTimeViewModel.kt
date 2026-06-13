@@ -15,7 +15,16 @@ import kotlinx.coroutines.withContext
 import java.util.*
 
 /**
- * UI State for Prayer Times Screen
+ * Immutable UI state for the Prayer Times Screen.
+ * 
+ * @property prayerSchedule The current daily schedule, or null if not yet calculated.
+ * @property isLoading True when calculating astronomical times on a background thread.
+ * @property isGeocoding True when performing a network lookup for city coordinates.
+ * @property errorMessage Present if a calculation or lookup fails.
+ * @property location The active location used for the current view.
+ * @property isAlarmsEnabled Reflects the global alarm toggle state.
+ * @property themeMode The active [AppThemeMode] (Light/Dark/System).
+ * @property savedLocations List of user-favorited locations for quick access.
  */
 data class PrayerTimeUiState(
     val prayerSchedule: PrayerSchedule? = null,
@@ -29,11 +38,20 @@ data class PrayerTimeUiState(
 )
 
 /**
- * View Model for managing prayer time business logic and UI state
+ * ViewModel responsible for bridging the Domain calculation logic with the Compose UI.
+ * 
+ * It manages:
+ * 1. UI State through a [StateFlow] of [PrayerTimeUiState].
+ * 2. Persistence of user preferences via SharedPreferences.
+ * 3. Lifecycle-aware background threading using [viewModelScope] and Coroutines.
+ * 4. Coordination between the [PrayerTimeCalculator] and [AlarmScheduler].
  */
 class PrayerTimeViewModel : ViewModel() {
 
     private val _uiState = MutableStateFlow(PrayerTimeUiState())
+    /**
+     * Public read-only stream of UI state. Composed UI elements observe this flow.
+     */
     val uiState: StateFlow<PrayerTimeUiState> = _uiState.asStateFlow()
 
     private val calculator = PrayerTimeCalculator()
@@ -42,7 +60,11 @@ class PrayerTimeViewModel : ViewModel() {
     private lateinit var context: android.content.Context
 
     /**
-     * Initialize the ViewModel with AlarmManager and Context
+     * Bootstraps the ViewModel with required system dependencies.
+     * Called from [MainActivity.onCreate].
+     * 
+     * @param alarmManager System AlarmManager for scheduling notifications.
+     * @param context Application context for resource and Preference access.
      */
     fun initialize(alarmManager: android.app.AlarmManager, context: android.content.Context) {
         this.alarmScheduler = AlarmScheduler(context, alarmManager)
@@ -51,7 +73,8 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Saves current settings to SharedPreferences
+     * Persists the current [appSettings] state to disk using SharedPreferences.
+     * Executes on the caller's thread (typically Main).
      */
     private fun saveSettings() {
         val prefs = context.getSharedPreferences("prayer_prefs", android.content.Context.MODE_PRIVATE)
@@ -62,8 +85,11 @@ class PrayerTimeViewModel : ViewModel() {
             putString("tz", appSettings.timeZone)
             putString("theme", appSettings.themeMode.name)
             putBoolean("alarms", appSettings.isAlarmsEnabled)
+            putString("method", appSettings.calculationMethod.name)
+            putString("asr", appSettings.asrMethod.name)
+            putInt("minutesBefore", appSettings.notificationMinutesBefore)
             
-            // Simple string encoding for saved locations: "city|lat|lon|tz;city|lat|lon|tz"
+            // Serialize saved locations list into a delimited string format
             val locationsString = appSettings.savedLocations.joinToString(";") { 
                 "${it.cityName}|${it.latitude}|${it.longitude}|${it.timeZone}"
             }
@@ -73,7 +99,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Loads settings from SharedPreferences
+     * Hydrates the [appSettings] and [_uiState] from disk on startup.
      */
     private fun loadSettings() {
         val prefs = context.getSharedPreferences("prayer_prefs", android.content.Context.MODE_PRIVATE)
@@ -93,7 +119,10 @@ class PrayerTimeViewModel : ViewModel() {
             cityName = prefs.getString("city", "Makkah") ?: "Makkah",
             timeZone = prefs.getString("tz", "Asia/Riyadh") ?: "Asia/Riyadh",
             themeMode = AppThemeMode.valueOf(prefs.getString("theme", "SYSTEM") ?: "SYSTEM"),
+            calculationMethod = CalculationMethod.valueOf(prefs.getString("method", "MECCA") ?: "MECCA"),
+            asrMethod = AsrMethod.valueOf(prefs.getString("asr", "STANDARD") ?: "STANDARD"),
             isAlarmsEnabled = prefs.getBoolean("alarms", true),
+            notificationMinutesBefore = prefs.getInt("minutesBefore", 15),
             savedLocations = savedLocs
         )
         
@@ -107,7 +136,10 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Lookup coordinates for a given city name
+     * Performs an asynchronous Geocoding lookup to convert a city name into GPS coordinates.
+     * 
+     * UI Integration: Triggered by the search icon in [LocationInputSection].
+     * Callback [onResult]: Updates the local UI text fields in [MainActivity].
      */
     fun lookupCoordinates(cityName: String, onResult: (Double, Double, String) -> Unit) {
         if (cityName.isBlank()) return
@@ -115,6 +147,7 @@ class PrayerTimeViewModel : ViewModel() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isGeocoding = true, errorMessage = null)
             try {
+                // Offload blocking network I/O to the IO dispatcher
                 withContext(Dispatchers.IO) {
                     val geocoder = Geocoder(context, Locale.getDefault())
                     @Suppress("DEPRECATION")
@@ -147,14 +180,18 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Loads prayer times for today
+     * Orchestrates the calculation of prayer times and scheduling of alarms.
+     * 
+     * UI Integration: Called automatically on startup and whenever location/settings change.
+     * Threading: 
+     * - Uses [Dispatchers.Default] for CPU-intensive astronomical math.
+     * - Uses [Dispatchers.Main] for UI state updates to ensure thread safety.
      */
     fun loadPrayerTimes() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             
             try {
-                // Move heavy calculation and alarm scheduling to a background thread
                 val updatedState = withContext(Dispatchers.Default) {
                     val location = Location(
                         latitude = appSettings.latitude,
@@ -170,7 +207,7 @@ class PrayerTimeViewModel : ViewModel() {
                         asrMethod = appSettings.asrMethod
                     )
                     
-                    // Schedule alarms if enabled
+                    // Re-sync system alarms whenever the schedule is recalculated
                     if (appSettings.isAlarmsEnabled && ::alarmScheduler.isInitialized) {
                         alarmScheduler.scheduleAlarms(schedule, appSettings.notificationMinutesBefore)
                     }
@@ -195,7 +232,8 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Updates the location settings
+     * Updates the active location and triggers a recalculation.
+     * UI Integration: Called when the "Update Prayer Times" button is clicked.
      */
     fun updateLocation(latitude: Double, longitude: Double, cityName: String, timeZone: String) {
         appSettings = appSettings.copy(
@@ -209,7 +247,8 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Saves the current location to the saved locations list
+     * Adds the current location to the [savedLocations] list.
+     * UI Integration: Called by the "Heart" icon in the UI.
      */
     fun saveCurrentLocation() {
         val currentLocation = Location(
@@ -229,7 +268,8 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Deletes a location from saved locations
+     * Removes a location from the favorites list.
+     * UI Integration: Called by the 'X' on a saved location chip.
      */
     fun deleteSavedLocation(location: Location) {
         appSettings = appSettings.copy(
@@ -240,7 +280,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Updates the calculation method
+     * Updates the astronomical calculation standard.
      */
     fun updateCalculationMethod(method: CalculationMethod) {
         appSettings = appSettings.copy(calculationMethod = method)
@@ -249,7 +289,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Updates the Asr calculation method
+     * Updates the Asr calculation juristic school.
      */
     fun updateAsrMethod(asrMethod: AsrMethod) {
         appSettings = appSettings.copy(asrMethod = asrMethod)
@@ -258,7 +298,10 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Toggles alarms on/off
+     * Globally enables or disables system alarms.
+     * 
+     * Logic: When enabled, immediately schedules today's alarms. 
+     * When disabled, clears all pending intents from [AlarmManager].
      */
     fun toggleAlarms(enabled: Boolean) {
         viewModelScope.launch {
@@ -282,7 +325,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Updates notification minutes before prayer
+     * Updates the early-warning lead time for notifications.
      */
     fun updateNotificationMinutes(minutes: Int) {
         appSettings = appSettings.copy(notificationMinutesBefore = minutes)
@@ -290,7 +333,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Updates the application theme
+     * Updates the UI theme (Light/Dark/System).
      */
     fun updateTheme(themeMode: AppThemeMode) {
         appSettings = appSettings.copy(themeMode = themeMode)
@@ -299,7 +342,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Returns a list of major timezones for the dropdown
+     * Helper to provide a curated list of timezones for the UI dropdown.
      */
     fun getMajorTimeZones(): List<String> {
         return listOf(
@@ -326,7 +369,7 @@ class PrayerTimeViewModel : ViewModel() {
     }
 
     /**
-     * Clears error message
+     * Resets the error state in the UI.
      */
     fun clearError() {
         _uiState.value = _uiState.value.copy(errorMessage = null)

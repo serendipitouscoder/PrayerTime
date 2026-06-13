@@ -10,7 +10,13 @@ import com.example.prayertime.data.model.PrayerSchedule
 import com.example.prayertime.receiver.PrayerAlarmReceiver
 
 /**
- * Manages scheduling and cancellation of prayer alarms
+ * Service class responsible for scheduling system-level alarms for prayer times.
+ * 
+ * This class interacts with the Android [AlarmManager] to set high-precision,
+ * exact alarms that can fire even when the device is idle (Doze mode).
+ * 
+ * @property context Application context used for creating intents and pending intents.
+ * @property alarmManager System service for scheduling alarms.
  */
 class AlarmScheduler(
     private val context: Context,
@@ -18,7 +24,14 @@ class AlarmScheduler(
 ) {
 
     /**
-     * Schedules alarms for all prayers in the schedule
+     * Schedules alarms for all valid prayers in a given schedule.
+     * 
+     * This method first clears any existing alarms to prevent duplicates or 
+     * stale notifications, then iterates through today's prayers.
+     * 
+     * @param schedule The full day's [PrayerSchedule].
+     * @param notificationMinutesBefore User preference for how many minutes 
+     * before the actual prayer time the alarm should trigger.
      */
     fun scheduleAlarms(schedule: PrayerSchedule, notificationMinutesBefore: Int) {
         cancelAllAlarms()
@@ -34,7 +47,7 @@ class AlarmScheduler(
     }
 
     /**
-     * Cancels all scheduled alarms
+     * Robust cancellation of all possible prayer alarms.
      */
     fun cancelAllAlarms() {
         PrayerName.entries.forEach { prayerName ->
@@ -43,7 +56,10 @@ class AlarmScheduler(
     }
 
     /**
-     * Cancels a specific prayer alarm
+     * Cancels a specific prayer alarm by its [PrayerName].
+     * 
+     * Uses a unique action string and the enum's ordinal as a request code 
+     * to identify the specific [PendingIntent].
      */
     fun cancelAlarm(prayerName: PrayerName) {
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
@@ -61,7 +77,13 @@ class AlarmScheduler(
     }
 
     /**
-     * Schedules a single alarm for a prayer
+     * Performs the actual low-level scheduling with the Android system.
+     * 
+     * Uses [AlarmManager.setExactAndAllowWhileIdle] to ensure the alarm triggers 
+     * at the precise time even during power-saving modes.
+     * 
+     * @param prayer The prayer object containing metadata.
+     * @param alarmTimeMillis The target time in UTC milliseconds.
      */
     private fun scheduleAlarm(prayer: Prayer, alarmTimeMillis: Long) {
         val intent = Intent(context, PrayerAlarmReceiver::class.java).apply {
@@ -85,15 +107,20 @@ class AlarmScheduler(
     }
 
     /**
-     * Checks if an alarm should be scheduled for this prayer
+     * Logic to determine if a specific time entry requires a notification.
+     * Typically, Fajr through Isha require alarms, while Sunrise/Sunset are informational.
      */
     private fun shouldScheduleAlarmForPrayer(prayer: Prayer): Boolean {
-        // Don't alarm for sunrise (just informational)
-        return prayer.name != PrayerName.SUNRISE
+        return prayer.name != PrayerName.SUNRISE && prayer.name != PrayerName.SUNSET
     }
 
     /**
-     * Calculates the alarm time based on prayer start time and notification offset
+     * Calculates the target trigger time by applying the user's lead-time offset.
+     * 
+     * If the calculated time for today has already passed, it automatically 
+     * rolls the alarm forward by 24 hours.
+     * 
+     * @return UTC milliseconds for the alarm, or null if input is malformed.
      */
     private fun calculateAlarmTime(prayerStartTime: String, minutesBefore: Int): Long? {
         val parts = prayerStartTime.split(":")
@@ -110,7 +137,6 @@ class AlarmScheduler(
         val alarmTime = calendar.timeInMillis
         val now = java.util.Calendar.getInstance().timeInMillis
 
-        // If the alarm time is in the past, schedule for tomorrow
         return if (alarmTime <= now) {
             calendar.add(java.util.Calendar.DAY_OF_YEAR, 1)
             calendar.timeInMillis

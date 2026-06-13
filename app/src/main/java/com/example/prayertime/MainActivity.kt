@@ -34,10 +34,24 @@ import com.example.prayertime.ui.viewmodel.PrayerTimeViewModel
 import java.util.Calendar
 import java.util.Locale
 
+/**
+ * Main entry point of the PrayerTime application.
+ * 
+ * This Activity serves as the single-page container for the Jetpack Compose UI.
+ * It coordinates with the [PrayerTimeViewModel] to display prayer schedules 
+ * and handles runtime permissions for notifications.
+ */
 class MainActivity : ComponentActivity() {
 
+    /**
+     * Scoped ViewModel instance that survives configuration changes.
+     */
     private val viewModel: PrayerTimeViewModel by viewModels()
 
+    /**
+     * Modern Android 13+ permission launcher for POST_NOTIFICATIONS.
+     * UI Integration: Triggered when the user enables alarms in [TopAppBar].
+     */
     private val requestPermissionLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -51,12 +65,15 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize ViewModel
+        // Bootstrap the ViewModel with system-level services
         val alarmManager = getSystemService(ALARM_SERVICE) as AlarmManager
         viewModel.initialize(alarmManager, applicationContext)
 
         setContent {
+            // UI -> Back: Observe state from the ViewModel
             val uiState by viewModel.uiState.collectAsState()
+            
+            // Back -> UI: Reactively determine theme based on persisted settings or system pref
             val darkTheme = when (uiState.themeMode) {
                 AppThemeMode.LIGHT -> false
                 AppThemeMode.DARK -> true
@@ -74,18 +91,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Primary Composable representing the entire screen content.
+     * 
+     * @param viewModel The state holder for the screen.
+     */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun PrayerTimeScreen(viewModel: PrayerTimeViewModel) {
+        // Local UI state for text fields
         var latitude by remember { mutableStateOf("") }
         var longitude by remember { mutableStateOf("") }
         var timezone by remember { mutableStateOf("Asia/Riyadh") }
         var cityName by remember { mutableStateOf("") }
         var showSettings by remember { mutableStateOf(false) }
 
+        // Observe global UI state
         val uiState by viewModel.uiState.collectAsState()
 
-        // Sync local state with loaded data when it changes
+        // UI -> Back Synchronization: 
+        // Whenever the schedule updates (e.g., from a Favorite selection), 
+        // sync the local text fields to match.
         LaunchedEffect(uiState.prayerSchedule) {
             uiState.prayerSchedule?.let { schedule ->
                 latitude = schedule.location.latitude.toString()
@@ -95,10 +121,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Initial data load on mount
         LaunchedEffect(Unit) {
             viewModel.loadPrayerTimes()
         }
 
+        // Settings Overlay
         if (showSettings) {
             SettingsDialog(
                 viewModel = viewModel,
@@ -140,7 +168,10 @@ class MainActivity : ComponentActivity() {
                         }
                         IconButton(
                             onClick = {
+                                // UI -> Back: Toggle alarms
                                 viewModel.toggleAlarms(!uiState.isAlarmsEnabled)
+                                
+                                // Permission Check (Android 13+)
                                 if (!uiState.isAlarmsEnabled && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)) {
                                     if (ContextCompat.checkSelfPermission(
                                             this@MainActivity,
@@ -167,7 +198,7 @@ class MainActivity : ComponentActivity() {
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // Input section for location
+                // Input section for location and coordinates
                 LocationInputSection(
                     latitude = latitude,
                     longitude = longitude,
@@ -178,6 +209,7 @@ class MainActivity : ComponentActivity() {
                     onTimezoneChange = { timezone = it },
                     onCityNameChange = { cityName = it },
                     onCalculateClick = {
+                        // UI -> Back: Perform astronomical update
                         viewModel.updateLocation(
                             latitude = latitude.toDoubleOrNull() ?: 21.4225,
                             longitude = longitude.toDoubleOrNull() ?: 39.8262,
@@ -192,7 +224,7 @@ class MainActivity : ComponentActivity() {
                     onDeleteLocation = { viewModel.deleteSavedLocation(it) }
                 )
 
-                // Prayer times section
+                // Main display area for results
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -200,23 +232,14 @@ class MainActivity : ComponentActivity() {
                 ) {
                     when {
                         uiState.isLoading -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
                         uiState.errorMessage != null -> {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        text = "Error: ${uiState.errorMessage}",
-                                        color = Color.Red
-                                    )
+                                    Text(text = "Error: ${uiState.errorMessage}", color = Color.Red)
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Button(onClick = { viewModel.loadPrayerTimes() }) {
                                         Text("Retry")
@@ -233,6 +256,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Configurable input component for location settings.
+     * Includes clear buttons, search lookup, and favorite chips.
+     */
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun LocationInputSection(
@@ -280,7 +307,7 @@ class MainActivity : ComponentActivity() {
                 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Saved Locations horizontal list
+                // Favorite locations selector
                 if (savedLocations.isNotEmpty()) {
                     Text(text = "Saved Locations:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     androidx.compose.foundation.lazy.LazyRow(
@@ -310,7 +337,7 @@ class MainActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                // City Name
+                // City Input with Geocoding lookup
                 OutlinedTextField(
                     value = cityName,
                     onValueChange = onCityNameChange,
@@ -329,7 +356,9 @@ class MainActivity : ComponentActivity() {
                                 }
                                 IconButton(
                                     onClick = {
+                                        // UI -> Back: Perform network geocoding
                                         viewModel.lookupCoordinates(cityName) { lat, lon, _ ->
+                                            // Back -> UI Callback: Populate the coordinates fields
                                             onLatitudeChange(String.format(Locale.US, "%.6f", lat))
                                             onLongitudeChange(String.format(Locale.US, "%.6f", lon))
                                         }
@@ -344,7 +373,7 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Latitude and Longitude row
+                // GPS Coordinate Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -382,7 +411,7 @@ class MainActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Timezone with Dropdown and manual entry
+                // Timezone dropdown
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = timezone,
@@ -437,6 +466,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Vertical list of calculated prayers.
+     */
     @Composable
     fun PrayerTimeList(schedule: PrayerSchedule) {
         val upcomingPrayerName = findUpcomingPrayer(schedule.prayers)
@@ -448,7 +480,6 @@ class MainActivity : ComponentActivity() {
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Prayer times with durations
             items(schedule.prayers, key = { it.name.name }) { prayer ->
                 PrayerTimeCardWithDuration(
                     prayer = prayer,
@@ -461,7 +492,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Calculation method info
+            // Calculation Standard Summary
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -474,14 +505,8 @@ class MainActivity : ComponentActivity() {
                             fontSize = 14.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Method: ${schedule.calculationMethod.displayName}",
-                            fontSize = 12.sp
-                        )
-                        Text(
-                            text = "Asr Method: ${schedule.asrMethod.label}",
-                            fontSize = 12.sp
-                        )
+                        Text(text = "Method: ${schedule.calculationMethod.displayName}", fontSize = 12.sp)
+                        Text(text = "Asr Method: ${schedule.asrMethod.label}", fontSize = 12.sp)
                         Text(
                             text = "Based on: Local Sun Position",
                             fontSize = 12.sp,
@@ -494,6 +519,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Individual prayer entry component with highlight support for upcoming prayers.
+     */
     @Composable
     fun PrayerTimeCardWithDuration(
         prayer: Prayer,
@@ -527,12 +555,8 @@ class MainActivity : ComponentActivity() {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = prayer.name.name,
                             fontWeight = FontWeight.Bold,
@@ -558,7 +582,6 @@ class MainActivity : ComponentActivity() {
                     
                     Spacer(modifier = Modifier.height(4.dp))
                     
-                    // Duration
                     Text(
                         text = "Duration: $duration",
                         fontSize = 12.sp,
@@ -588,7 +611,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Settings dialog for theme and other preferences
+     * Modal dialog for application preferences (Theme, Calculations).
      */
     @Composable
     fun SettingsDialog(
@@ -607,7 +630,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
-                    // Theme selection row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
@@ -642,7 +664,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     
-                    // Add more settings as needed
                     Text(
                         text = "Notifications: ${if (uiState.isAlarmsEnabled) "Enabled" else "Disabled"}",
                         style = MaterialTheme.typography.bodyMedium
@@ -657,6 +678,9 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Choice component for theme selection.
+     */
     @Composable
     fun ThemeOption(
         icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -689,7 +713,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Calculate prayer duration from start and end times
+     * Utility to calculate the time span between two HH:mm strings.
      */
     private fun calculatePrayerDuration(startTime: String, endTime: String): String {
         return try {
@@ -699,7 +723,6 @@ class MainActivity : ComponentActivity() {
             val startMinutes = startParts[0].toInt() * 60 + startParts[1].toInt()
             var endMinutes = endParts[0].toInt() * 60 + endParts[1].toInt()
             
-            // Handle if end time is next day (e.g., Isha to Fajr)
             if (endMinutes <= startMinutes) {
                 endMinutes += 24 * 60
             }
@@ -721,7 +744,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Find the next upcoming prayer based on current time
+     * Logic to determine which prayer is currently pending based on system clock.
      */
     private fun findUpcomingPrayer(prayers: List<Prayer>): String? {
         val currentCalendar = Calendar.getInstance()
@@ -737,7 +760,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // If no prayer found for today, return Fajr (next day)
         return PrayerName.FAJR.name
     }
 }

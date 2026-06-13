@@ -6,14 +6,26 @@ import java.util.*
 import kotlin.math.*
 
 /**
- * Calculator for Muslim prayer times based on local sun position.
- * Uses astronomical formulas and accounts for location, timezone, and DST.
+ * Core domain logic for calculating Muslim prayer times.
+ * 
+ * This class implements astronomical algorithms to determine the sun's position 
+ * relative to any geographical location on Earth. It accounts for:
+ * - Latitude and Longitude (Solar position)
+ * - Timezone and Daylight Saving Time (Clock time)
+ * - Atmospheric refraction (Sunrise/Sunset)
+ * - Juristic shadow length rules (Asr)
+ * - High latitude twilight persistent rules (Fajr/Isha fallbacks)
  */
 class PrayerTimeCalculator {
 
     /**
-     * Calculates all prayer times for a given location and date.
-     * Properly handles longitude, timezone, and astronomical corrections.
+     * Entry point for calculating the full day's prayer schedule.
+     * 
+     * @param location The geographical [Location] data.
+     * @param date The specific [Date] to calculate times for.
+     * @param calculationMethod The astronomical standard to apply.
+     * @param asrMethod The juristic school for Asr calculation.
+     * @return A [PrayerSchedule] containing all calculated times.
      */
     fun calculatePrayerTimes(
         location: Location,
@@ -21,10 +33,10 @@ class PrayerTimeCalculator {
         calculationMethod: CalculationMethod,
         asrMethod: AsrMethod
     ): PrayerSchedule {
-        // Use a UTC calendar for astronomical calculations
+        // Use a UTC calendar for astronomical calculations to ensure stability across timezones
         val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
         calendar.time = date
-        // Calculate parameters for 12:00 UTC (Noon) for daily averages
+        // Calculate parameters for 12:00 UTC (Solar Noon average) to minimize daily error
         calendar.set(Calendar.HOUR_OF_DAY, 12)
         calendar.set(Calendar.MINUTE, 0)
         calendar.set(Calendar.SECOND, 0)
@@ -35,47 +47,40 @@ class PrayerTimeCalculator {
         val eqTime = getEquationOfTime(jd)
         val tzOffset = getTimeZoneOffset(location.timeZone, date)
 
-        // Solar Noon (Dhuhr): 12 + TZ_Offset - Longitude/15 - EOT/60
-        // Longitude is positive for East, negative for West.
-        // Example: London (0.12 W) -> Longitude = -0.12. 
-        // dhuhr = 12 + 1 - (-0.12/15) - EOT/60 = 13 + 0.008 - EOT/60
+        // 1. Calculate Dhuhr (Solar Noon)
+        // Formula: 12 + TZ_Offset - (Longitude / 15) - (EquationOfTime / 60)
         val dhuhr = 12.0 + tzOffset - (location.longitude / 15.0) - (eqTime / 60.0)
 
-        // Sunrise/Sunset angle (accounts for atmospheric refraction 34' and sun radius 16')
-        // Total -50 arc minutes = -0.8333 degrees
+        // 2. Define Horizon Angle
+        // Accounts for atmospheric refraction (34') and solar semi-diameter (16')
         val horizonAngle = -0.8333
         
-        // Calculate base times
+        // 3. Calculate Raw Astronomical Times
         val fajrRaw = calculateTimeAtAngle(location, declination, dhuhr, -calculationMethod.fajrAngle, true)
         val sunriseRaw = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, true)
         val sunsetRaw = calculateTimeAtAngle(location, declination, dhuhr, horizonAngle, false)
         val asrRaw = calculateAsrTime(location, declination, dhuhr, asrMethod.factor)
         
-        // Maghrib calculation
-        // Traditionally Sunset. Some add a small safety buffer (e.g. 2-3 minutes).
-        // We add 2 minutes (0.033 hours) to ensure the sun has completely set.
+        // 4. Maghrib Calculation
+        // Standard is Sunset + a safety buffer (2 mins) to ensure the disk has fully set.
         val maghribRaw = if (sunsetRaw > 0) sunsetRaw + (2.0 / 60.0) else -1.0
         
-        // Isha calculation
+        // 5. Isha Calculation
         val ishaRaw = if (calculationMethod == CalculationMethod.MECCA) {
-            // Umm Al-Qura: 90 minutes (1.5 hours) after Maghrib
+            // Umm Al-Qura fixed duration (90 mins) rule
             if (maghribRaw > 0) maghribRaw + 1.5 else -1.0
         } else {
             calculateTimeAtAngle(location, declination, dhuhr, -calculationMethod.ishaAngle, false)
         }
 
-        // Handle cases where sun doesn't reach specified angles (e.g. polar regions in summer)
-        // Use the "One-Seventh of Night" rule for high latitudes (like UK in summer)
-        // where astronomical dawn/dusk (-18 degrees) may not occur.
-        
+        // 6. High Latitude Adjustments (e.g., UK in Summer)
+        // If the sun doesn't reach -18 degrees (Twilight), apply the 1/7th Night fallback.
         val validatedSunrise = if (sunriseRaw < 0) dhuhr - 6.0 else sunriseRaw
         val validatedSunset = if (sunsetRaw < 0) dhuhr + 6.0 else sunsetRaw
         
-        // Night duration: from sunset to sunrise
         val nightDuration = (24.0 - validatedSunset) + validatedSunrise
         
         val validatedFajr = if (fajrRaw < 0 || fajrRaw >= validatedSunrise) {
-            // Fallback: 1/7th of the night before sunrise
             validatedSunrise - (nightDuration / 7.0)
         } else fajrRaw
 
@@ -85,13 +90,13 @@ class PrayerTimeCalculator {
         
         val validatedIsha = if (ishaRaw < 0 || ishaRaw <= validatedMaghrib) {
             if (calculationMethod == CalculationMethod.MECCA) {
-                validatedMaghrib + 1.5 // 90 mins after Maghrib
+                validatedMaghrib + 1.5
             } else {
-                // Fallback: 1/7th of the night after sunset
                 validatedSunset + (nightDuration / 7.0)
             }
         } else ishaRaw
 
+        // 7. Format into UI-ready Prayers
         val prayers = listOf(
             Prayer(PrayerName.FAJR, decimalToTime(validatedFajr), decimalToTime(validatedSunrise)),
             Prayer(PrayerName.SUNRISE, decimalToTime(validatedSunrise), decimalToTime(dhuhr)),
@@ -112,23 +117,27 @@ class PrayerTimeCalculator {
         )
     }
 
+    /**
+     * Calculates the time when the sun reaches a specific altitude angle.
+     * Uses the fundamental hour angle formula: cos(H) = (sin(alpha) - sin(phi)sin(delta)) / (cos(phi)cos(delta))
+     */
     private fun calculateTimeAtAngle(location: Location, declination: Double, dhuhr: Double, angle: Double, isBeforeNoon: Boolean): Double {
         val phi = toRadians(location.latitude)
         val alpha = toRadians(angle)
         
-        // Hour Angle formula: cos(H) = (sin(alpha) - sin(phi) * sin(declination)) / (cos(phi) * cos(declination))
         val cosH = (sin(alpha) - sin(phi) * sin(declination)) / (cos(phi) * cos(declination))
         
-        if (cosH > 1.0) return -1.0 // Sun always above this angle (polar day)
-        if (cosH < -1.0) return -1.0 // Sun always below this angle (polar night)
+        if (cosH > 1.0 || cosH < -1.0) return -1.0 
         
         val hourAngle = toDegrees(acos(cosH))
         return dhuhr + (if (isBeforeNoon) -hourAngle else hourAngle) / 15.0
     }
 
+    /**
+     * Juristic calculation for Asr time based on shadow length.
+     */
     private fun calculateAsrTime(location: Location, declination: Double, dhuhr: Double, factor: Double): Double {
         val phi = toRadians(location.latitude)
-        // Asr altitude: atan(1 / (factor + tan(abs(phi - declination))))
         val altitude = atan(1.0 / (factor + tan(abs(phi - declination))))
         
         val cosH = (sin(altitude) - sin(phi) * sin(declination)) / (cos(phi) * cos(declination))
@@ -139,6 +148,9 @@ class PrayerTimeCalculator {
         return dhuhr + hourAngle / 15.0
     }
 
+    /**
+     * Converts a standard Gregorian date into a Julian Date.
+     */
     private fun getJulianDate(cal: Calendar): Double {
         var year = cal.get(Calendar.YEAR)
         var month = cal.get(Calendar.MONTH) + 1
@@ -155,6 +167,9 @@ class PrayerTimeCalculator {
         return floor(365.25 * (year + 4716)) + floor(30.6001 * (month + 1)) + day + b - 1524.5
     }
 
+    /**
+     * Calculates Solar Declination.
+     */
     private fun getSunDeclination(jd: Double): Double {
         val d = jd - 2451545.0
         val g = fixAngle(357.529 + 0.98560028 * d)
@@ -164,6 +179,9 @@ class PrayerTimeCalculator {
         return asin(sin(toRadians(e)) * sin(toRadians(l)))
     }
 
+    /**
+     * Calculates the Equation of Time (discrepancy between solar and mean time).
+     */
     private fun getEquationOfTime(jd: Double): Double {
         val d = jd - 2451545.0
         val g = fixAngle(357.529 + 0.98560028 * d)
@@ -178,21 +196,29 @@ class PrayerTimeCalculator {
         if (eqTime > 20.0) eqTime -= 24.0
         if (eqTime < -20.0) eqTime += 24.0
         
-        return eqTime * 60.0 // Result in minutes
+        return eqTime * 60.0 
     }
 
+    /**
+     * Resolves the local timezone offset including DST for a specific date.
+     */
     private fun getTimeZoneOffset(timeZoneId: String, date: Date): Double {
         val tz = TimeZone.getTimeZone(timeZoneId)
-        // This returns the offset including DST for the specific date
         return tz.getOffset(date.time) / 3600000.0
     }
 
+    /**
+     * Normalizes an angle to the [0, 360) range.
+     */
     private fun fixAngle(a: Double): Double {
         var res = a % 360.0
         if (res < 0) res += 360.0
         return res
     }
 
+    /**
+     * Formats decimal hours into an HH:mm string.
+     */
     private fun decimalToTime(time: Double): String {
         if (time < 0) return "--:--"
         var t = time % 24

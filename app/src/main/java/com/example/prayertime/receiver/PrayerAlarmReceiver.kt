@@ -11,7 +11,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
 /**
- * BroadcastReceiver that handles prayer alarm notifications
+ * System-level BroadcastReceiver triggered by scheduled [AlarmManager] events.
+ * 
+ * This class handles the "Wake Up" event when a prayer time is approaching.
+ * It is responsible for:
+ * 1. Extracting prayer metadata from the incoming intent.
+ * 2. Creating a notification channel (for Android 8.0+).
+ * 3. Posting a high-priority heads-up notification to the user.
  */
 class PrayerAlarmReceiver : BroadcastReceiver() {
 
@@ -23,6 +29,14 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
         private const val EXTRA_PRAYER_TIME = "prayer_time"
     }
 
+    /**
+     * Entry point when the system alarm fires.
+     * 
+     * Logic:
+     * - Retrieve name and time strings from extras.
+     * - Ensure channel exists.
+     * - Build and notify.
+     */
     override fun onReceive(context: Context, intent: Intent) {
         val prayerName = intent.getStringExtra(EXTRA_PRAYER_NAME) ?: "Prayer"
         val prayerTime = intent.getStringExtra(EXTRA_PRAYER_TIME) ?: ""
@@ -32,10 +46,13 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
     }
 
     /**
-     * Shows a notification for the prayer alarm
+     * Constructs and displays a system notification.
+     * 
+     * @param prayerName Human-readable name (e.g., "Fajr").
+     * @param prayerTime The start time for display.
      */
     private fun showNotification(context: Context, prayerName: String, prayerTime: String) {
-        // Build intent to open app when notification is tapped
+        // Build intent to bring the user back to the app main screen when tapped
         val intent = Intent(context, com.example.prayertime.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
@@ -47,7 +64,7 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Build notification
+        // Build notification with high priority and vibration for immediate awareness
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Prayer Time")
@@ -59,16 +76,17 @@ class PrayerAlarmReceiver : BroadcastReceiver() {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
-        // Post notification
         val notificationManager = ContextCompat.getSystemService(
             context, NotificationManager::class.java
         )
+        // Use hashcode as ID to support multiple concurrent prayer notifications if necessary
         val notificationId = prayerName.hashCode().coerceAtMost(Int.MAX_VALUE).coerceAtLeast(0)
         notificationManager?.notify(notificationId, notification)
     }
 
     /**
-     * Creates the notification channel for Android O and above
+     * Required setup for Android O (API 26) and above.
+     * Configures the visual and audible behavior of notifications in this category.
      */
     private fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
